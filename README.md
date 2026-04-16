@@ -3,7 +3,8 @@
 Sistem multi-agent berbasis AI untuk menjawab pertanyaan seputar lowongan kerja di Indonesia. Dibangun menggunakan **LangGraph**, **RAG (Retrieval-Augmented Generation)**, dan **SQL querying** — dikoordinasikan oleh orchestrator agent yang secara otomatis merouting setiap pertanyaan ke agent yang tepat.
 
 > Final Project — AI Engineering | Purwadhika 2025
-> Tim: Fil Ardhi Kamza & Anin
+> Kelompok 3
+> Tim: Fil Ardhi Kamza & Anintyo Herdadi
 
 ---
 
