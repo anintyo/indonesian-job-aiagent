@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, List
 from typing_extensions import TypedDict
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,6 +17,7 @@ class AgentState(TypedDict):
     sql_result: str
     rag_result: str
     final_answer: str
+    suggested_prompts: List[str]
 
 # ---------------------------------------------------------------------------
 # Nodes
@@ -68,10 +69,29 @@ def synthesize_node(state: AgentState) -> AgentState:
     }).content
     return {**state, "final_answer": answer}
 
+_SUGGEST_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """Kamu adalah asisten pencari kerja di Indonesia.
+Berdasarkan pertanyaan user dan jawaban yang sudah diberikan, buatlah tepat 3 pertanyaan lanjutan yang relevan dan mungkin ingin ditanyakan user.
+Format output: hanya 3 pertanyaan, masing-masing di baris baru, tanpa penomoran atau bullet point."""),
+    ("human", """Pertanyaan awal: {query}
+Jawaban yang diberikan:
+{final_answer}
+Tulis 3 pertanyaan lanjutan:""")
+])
+
+def suggest_node(state: AgentState) -> AgentState:
+    chain = _SUGGEST_PROMPT | llm
+    raw = chain.invoke({
+        "query": state["query"],
+        "final_answer": state.get("final_answer", ""),
+    }).content
+    suggestions = [s.strip() for s in raw.strip().splitlines() if s.strip()][:3]
+    return {**state, "suggested_prompts": suggestions}
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
-def route_intent(state: AgentState) -> Literal["sql", "rag", "both_sql", "both_rag"]:
+def route_intent(state: AgentState) -> Literal["sql", "rag", "both_sql"]:
     intent = state.get("intent", "both")
     if intent == "sql":
         return "sql"
@@ -79,9 +99,6 @@ def route_intent(state: AgentState) -> Literal["sql", "rag", "both_sql", "both_r
         return "rag"
     else:
         return "both_sql"
-
-def route_after_both_sql(state: AgentState) -> Literal["both_rag"]:
-    return "both_rag"
 
 # ---------------------------------------------------------------------------
 # Build Graph
@@ -94,6 +111,7 @@ def _build_graph() -> StateGraph:
     graph.add_node("both_sql", sql_node)
     graph.add_node("both_rag", rag_node)
     graph.add_node("synthesize", synthesize_node)
+    graph.add_node("suggest", suggest_node)
     graph.set_entry_point("classify")
     graph.add_conditional_edges("classify", route_intent, {
         "sql": "sql",
@@ -104,7 +122,8 @@ def _build_graph() -> StateGraph:
     graph.add_edge("rag", "synthesize")
     graph.add_edge("both_sql", "both_rag")
     graph.add_edge("both_rag", "synthesize")
-    graph.add_edge("synthesize", END)
+    graph.add_edge("synthesize", "suggest")
+    graph.add_edge("suggest", END)
     return graph.compile()
 
 _graph = _build_graph()
@@ -120,6 +139,7 @@ def run(query: str) -> dict:
             "sql_result": "",
             "rag_result": "",
             "final_answer": "",
+            "suggested_prompts": [],
         })
 
     intent = result.get("intent", "unknown")
@@ -142,10 +162,11 @@ def run(query: str) -> dict:
     price_idr     = round(17_000 * (input_tokens * 0.15 + output_tokens * 0.6) / 1_000_000, 4)
 
     return {
-        "answer":             result["final_answer"],
-        "agent":              agent_used,
-        "total_input_tokens": input_tokens,
+        "answer":              result["final_answer"],
+        "agent":               agent_used,
+        "total_input_tokens":  input_tokens,
         "total_output_tokens": output_tokens,
-        "price_idr":          price_idr,
-        "tool_messages":      tool_messages,
+        "price_idr":           price_idr,
+        "tool_messages":       tool_messages,
+        "suggested_prompts":   result.get("suggested_prompts", []),
     }

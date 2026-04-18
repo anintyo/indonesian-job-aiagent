@@ -21,6 +21,7 @@ class ChatResponse(BaseModel):
     total_output_tokens: int
     price_idr:           float
     tool_messages:       List[Any]
+    suggested_prompts:   List[str]
 
 
 @app.get("/health")
